@@ -1,0 +1,143 @@
+import streamlit as st
+import pandas as pd
+import altair as alt
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
+
+# 1) Load Data
+@st.cache_data
+def load_data():
+    df = pd.read_csv("amazon_products_30pages.csv")
+    df["Price"] = pd.to_numeric(df["Price"].replace("[₹,]", "", regex=True), errors='coerce')
+    df["Rating"] = pd.to_numeric(df["Review"].str.extract(r"(\d\.\d)")[0], errors='coerce')
+    df["Brand"] = df["Product Name"].str.split().str[0]
+    df.dropna(subset=["Price","Rating"], inplace=True)
+    return df
+
+df = load_data()
+
+# 2) Page Config
+st.set_page_config(page_title="Amazon Products Dashboard", layout="wide", page_icon="📈")
+
+# 3) Title
+st.markdown("<h1 style='text-align: center; color: teal;'>📊 Amazon Products Dashboard</h1>", unsafe_allow_html=True)
+
+# 4) Sidebar Filters
+st.sidebar.header("🔍 Filter Options")
+
+# Category filter
+categories = list(df["Category"].unique())
+selected_categories = st.sidebar.multiselect(
+    "Select Categories",
+    categories,
+    default=categories
+)
+
+# Price slider filter
+min_price = float(df["Price"].min())
+max_price = float(df["Price"].max())
+price_range = st.sidebar.slider(
+    "Select Price Range (₹)",
+    min_value=min_price,
+    max_value=max_price,
+    value=(min_price, max_price)
+)
+
+# Rating slider filter
+min_rating = float(df["Rating"].min())
+max_rating = float(df["Rating"].max())
+rating_range = st.sidebar.slider(
+    "Select Rating Range",
+    min_value=min_rating,
+    max_value=max_rating,
+    value=(min_rating, max_rating),
+    step=0.1
+)
+
+# Filter data
+filtered_df = df[
+    (df["Category"].isin(selected_categories)) &
+    (df["Price"] >= price_range[0]) &
+    (df["Price"] <= price_range[1]) &
+    (df["Rating"] >= rating_range[0]) &
+    (df["Rating"] <= rating_range[1])
+]
+
+# 5) Animated Metrics
+st.markdown("### 📂 Key Metrics")
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Total Products", f"{filtered_df.shape[0]:,}")
+col2.metric("Categories", f"{filtered_df['Category'].nunique():,}")
+col3.metric("Average Price (₹)", f"₹{filtered_df['Price'].mean():,.2f}")
+col4.metric("Average Rating", f"{filtered_df['Rating'].mean():.2f}")
+
+# 6) Top Brands (Top 10) - Fixed rank error
+st.subheader("🏆 Top Brands (Top 10)")
+top_brands = filtered_df.groupby("Brand").size().sort_values(ascending=False).head(10).reset_index(name="count")
+brand_chart = alt.Chart(top_brands).mark_bar().encode(
+    y=alt.Y("Brand:N", sort="-x"),
+    x="count:Q",
+    tooltip=["Brand","count"]
+)
+st.altair_chart(brand_chart, use_container_width=True)
+
+# 7) Price Distribution
+st.subheader("💰 Price Distribution")
+price_chart = (
+    alt.Chart(filtered_df)
+    .mark_bar()
+    .encode(
+        x=alt.X("Price:Q", bin=alt.Bin(maxbins=30)),
+        y="count()",
+        color="Category:N",
+        tooltip=["count()", "Category"]
+    )
+    .properties(width=700, height=400)
+    .interactive()
+)
+st.altair_chart(price_chart, use_container_width=True)
+
+# 8) Rating Distribution
+st.subheader("⭐ Rating Distribution")
+rating_chart = (
+    alt.Chart(filtered_df)
+    .mark_bar()
+    .encode(
+        x="Rating:O",
+        y="count()",
+        color="Category:N",
+        tooltip=["Rating","count()","Category"]
+    )
+    .properties(width=700, height=400)
+    .interactive()
+)
+st.altair_chart(rating_chart, use_container_width=True)
+
+# 9) Word Cloud
+st.subheader("☁ Word Cloud")
+text = " ".join(filtered_df["Product Name"].astype(str))
+wc = WordCloud(width=1000, height=400, background_color="white", colormap="viridis").generate(text)
+fig, ax = plt.subplots(figsize=(12,5))
+ax.imshow(wc, interpolation="bilinear")
+ax.axis("off")
+st.pyplot(fig)
+
+# 10) Price vs Rating Scatter Plot
+st.subheader("📊 Price vs Rating Scatter Plot")
+scatter_chart = (
+    alt.Chart(filtered_df)
+    .mark_circle(size=60, opacity=0.7)
+    .encode(
+        x="Price:Q",
+        y="Rating:Q",
+        color="Category:N",
+        tooltip=["Product Name","Category","Price","Rating"]
+    )
+    .properties(width=800, height=500)
+    .interactive()
+)
+st.altair_chart(scatter_chart, use_container_width=True)
+
+# 11) Scrollable & Searchable Data Table
+st.subheader("📑 Products Data")
+st.dataframe(filtered_df.reset_index(drop=True), use_container_width=True)
